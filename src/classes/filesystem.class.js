@@ -4,6 +4,7 @@ class FilesystemDisplay {
 
         const fs = require("fs");
         const path = require("path");
+        const signale = require("signale");
         this.cwd = [];
         this.cwd_path = null;
         this.iconcolor = `rgb(${window.theme.r}, ${window.theme.g}, ${window.theme.b})`;
@@ -429,19 +430,20 @@ class FilesystemDisplay {
                         type = "eDEX-UI keyboards folder";
                         break;
                     default:
-                        let iconName = this.fileIconsMatcher(e.name);
-                        icon = this.icons[iconName];
-                        if (typeof icon === "undefined") {
-                            if (e.type === "file") icon = this.icons.file;
-                            if (e.type === "dir") {
-                                icon = this.icons.dir;
-                                type = "folder";
-                            }
-                            if (typeof icon === "undefined") icon = this.icons.other;
-                        } else if (e.category !== "dir") {
-                            type = iconName.replace("icon-", "");
+                        // First check if it's a directory - directories should always use folder icons
+                        // regardless of their name (fixes #1167: folders like "test.js" showing file icons)
+                        if (e.type === "dir") {
+                            icon = this.icons.dir;
+                            type = "folder";
                         } else {
-                            type = "special folder";
+                            let iconName = this.fileIconsMatcher(e.name);
+                            icon = this.icons[iconName];
+                            if (typeof icon === "undefined") {
+                                if (e.type === "file") icon = this.icons.file;
+                                if (typeof icon === "undefined") icon = this.icons.other;
+                            } else {
+                                type = iconName.replace("icon-", "");
+                            }
                         }
                         break;
                 }
@@ -612,7 +614,7 @@ class FilesystemDisplay {
                                     title: "Failed to load file: " + block.path,
                                     html: err
                                 });
-                                console.log(err);
+                                signale.error(err);
                             };
                             window.keyboard.detach();
                             new Modal(

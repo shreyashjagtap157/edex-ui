@@ -487,7 +487,7 @@ async function initUI() {
     window.onmouseup = e => {
         if (window.keyboard.linkedToTerm) window.term[window.currentTerm].term.focus();
     };
-    window.term[0].term.writeln("\033[1m"+`Welcome to eDEX-UI v${electron.remote.app.getVersion()} - Electron v${process.versions.electron}`+"\033[0m");
+    window.term[0].term.writeln("\x1b[1m"+`Welcome to eDEX-UI v${electron.remote.app.getVersion()} - Electron v${process.versions.electron}`+"\x1b[0m");
 
     await _delay(100);
 
@@ -500,8 +500,41 @@ async function initUI() {
     document.getElementById("filesystem").setAttribute("style", "opacity: 1;");
 
     // Resend terminal CWD to fsDisp if we're hot reloading
+    // Also reconnect to existing TTYs that survived the reload - fixes #630
     if (window.performance.navigation.type === 1) {
         window.term[window.currentTerm].resendCWD();
+        
+        // Query and reconnect to existing TTYs from main process
+        ipc.send("getActiveTtys");
+        ipc.once("getActiveTtys-reply", (e, activePorts) => {
+            activePorts.forEach((port, index) => {
+                let tabNumber = index + 1; // Tabs 1-4
+                if (tabNumber <= 4) {
+                    window.term[tabNumber] = new Terminal({
+                        role: "client",
+                        parentId: "terminal" + tabNumber,
+                        port: port
+                    });
+                    
+                    document.getElementById("shell_tab" + tabNumber).innerHTML = 
+                        `<p>::${port}</p>`;
+                    
+                    window.term[tabNumber].onclose = e => {
+                        delete window.term[tabNumber].onprocesschange;
+                        document.getElementById("shell_tab" + tabNumber).innerHTML = "<p>EMPTY</p>";
+                        document.getElementById("terminal" + tabNumber).innerHTML = "";
+                        window.term[tabNumber].term.dispose();
+                        delete window.term[tabNumber];
+                        window.useAppShortcut("PREVIOUS_TAB");
+                    };
+                    
+                    window.term[tabNumber].onprocesschange = p => {
+                        document.getElementById("shell_tab" + tabNumber).innerHTML = 
+                            `<p>#${tabNumber + 1} - ${p}</p>`;
+                    };
+                }
+            });
+        });
     }
 
     await _delay(200);

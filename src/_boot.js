@@ -42,7 +42,7 @@ ipc.on("log", (e, type, content) => {
     signale[type](content);
 });
 
-var win, tty, extraTtys;
+let win, tty, extraTtys;
 const settingsFile = path.join(electron.app.getPath("userData"), "settings.json");
 const shortcutsFile = path.join(electron.app.getPath("userData"), "shortcuts.json");
 const lastWindowStateFile = path.join(electron.app.getPath("userData"), "lastWindowState.json");
@@ -53,10 +53,17 @@ const innerKblayoutsDir = path.join(__dirname, "assets/kb_layouts");
 const fontsDir = path.join(electron.app.getPath("userData"), "fonts");
 const innerFontsDir = path.join(__dirname, "assets/fonts");
 
-// Unset proxy env variables to avoid connection problems on the internal websockets
-// See #222
-if (process.env.http_proxy) delete process.env.http_proxy;
-if (process.env.https_proxy) delete process.env.https_proxy;
+// Configure proxy bypass for internal websockets while preserving proxy for external connections
+// See #222 for original issue - this solution allows proxies on regulated networks
+// Internal WebSocket connections to 127.0.0.1 need to bypass any configured proxy
+const NO_PROXY_HOSTS = '127.0.0.1,localhost,::1';
+if (process.env.NO_PROXY) {
+    process.env.NO_PROXY = `${process.env.NO_PROXY},${NO_PROXY_HOSTS}`;
+} else if (process.env.no_proxy) {
+    process.env.no_proxy = `${process.env.no_proxy},${NO_PROXY_HOSTS}`;
+} else {
+    process.env.NO_PROXY = NO_PROXY_HOSTS;
+}
 
 // Bypass GPU acceleration blocklist, trading a bit of stability for a great deal of performance, mostly on Linux
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
@@ -154,8 +161,8 @@ fs.readdirSync(innerFontsDir).forEach(e => {
 
 // Version history logging
 const versionHistoryPath = path.join(electron.app.getPath("userData"), "versions_log.json");
-var versionHistory = fs.existsSync(versionHistoryPath) ? require(versionHistoryPath) : {};
-var version = app.getVersion();
+let versionHistory = fs.existsSync(versionHistoryPath) ? require(versionHistoryPath) : {};
+const version = app.getVersion();
 if (typeof versionHistory[version] === "undefined") {
 	versionHistory[version] = {
 		firstSeen: Date.now(),
@@ -221,6 +228,14 @@ function createWindow(settings) {
 }
 
 app.on('ready', async () => {
+    // Configure Electron session to bypass proxy for internal WebSocket connections
+    // This ensures terminal communication works on regulated networks with mandatory proxies
+    const {session} = require('electron');
+    await session.defaultSession.setProxy({
+        proxyBypassRules: '<local>,127.0.0.1,localhost,::1'
+    });
+    signale.info('Proxy bypass configured for internal connections');
+
     signale.pending(`Loading settings file...`);
     let settings = require(settingsFile);
     signale.pending(`Resolving shell path...`);
@@ -327,6 +342,19 @@ app.on('ready', async () => {
             extraTtys[port] = term;
             e.sender.send("ttyspawn-reply", "SUCCESS: "+port);
         }
+    });
+
+    // Handler to query active TTYs - used for reconnecting after UI reload
+    // Fixes #630: Tab state persistence on UI reload
+    ipc.on("getActiveTtys", (e) => {
+        let activePorts = [];
+        Object.keys(extraTtys).forEach(port => {
+            if (extraTtys[port] !== null) {
+                activePorts.push(Number(port));
+            }
+        });
+        signale.info(`Active TTYs query: ${activePorts.length} extra terminals found`);
+        e.sender.send("getActiveTtys-reply", activePorts);
     });
 
     // Backend support for theme and keyboard hotswitch

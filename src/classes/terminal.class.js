@@ -304,6 +304,7 @@ class Terminal {
             this.Pty = require("node-pty");
             this.Websocket = require("ws").Server;
             this.Ipc = require("electron").ipcMain;
+            const signale = require("signale");
 
             this.renderer = null;
             this.port = opts.port || 3000;
@@ -374,7 +375,7 @@ class Terminal {
                         }
                     }).catch(e => {
                         if (!this._closed) {
-                            console.log("Error while tracking TTY working directory: ", e);
+                            signale.warn("Error while tracking TTY working directory: ", e);
                             this._disableCWDtracking = true;
                             try {
                                 this.renderer.send("terminal_channel-"+this.port, "Fallback cwd", opts.cwd || process.env.PWD);
@@ -395,7 +396,7 @@ class Terminal {
                         }
                     }).catch(e => {
                         if (!this._closed) {
-                            console.log("Error while retrieving TTY subprocess: ", e);
+                            signale.warn("Error while retrieving TTY subprocess: ", e);
                             try {
                                 this.renderer.send("terminal_channel-"+this.port, "New process", "");
                             } catch(e) {
